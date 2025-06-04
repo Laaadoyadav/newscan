@@ -1,0 +1,117 @@
+import requests
+import time
+import pandas as pd
+import os
+import nvdlib
+# === Load CVE IDs from Excel ===
+input_excel = "Cve.xlsx"  # Adjust the path if needed
+df = pd.read_excel(input_excel)
+cve_ids = df['cve_id'].dropna().tolist()
+API_KEY_CVSS = "b0c2943a-8702-4560-b2b3-08ec65345d7b"
+# === Download & Load Known Exploited Vulnerabilities (KEV) List ===
+kev_url = "https://www.cisa.gov/sites/default/files/csv/known_exploited_vulnerabilities.csv"
+kev_file = "known_exploited_vulnerabilities.csv"
+
+response = requests.get(kev_url)
+with open(kev_file, "wb") as f:
+    f.write(response.content)
+
+kev_df = pd.read_csv(kev_file)
+kev_df['cveID'] = kev_df['cveID'].str.lower()
+
+# === EPS API Query ===
+def get_epss_details(cve_id):
+    api_url = f"https://api.first.org/data/v1/epss?cve={cve_id}"
+    try:
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        item = data.get('data', [{}])[0]
+        return {
+            'cve': item.get('cve', cve_id),
+            'epss': item.get('epss', 'N/A'),
+            'percentile': item.get('percentile', 'N/A'),
+            'date': item.get('date', 'N/A')
+        }
+    except:
+        return {
+            'cve': cve_id,
+            'epss': 'Error',
+            'percentile': 'Error',
+            'date': 'Error'
+        }
+
+# === CVSS API Query (NVD) ===
+# def get_cve_details(cve_id):
+#     url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
+#     headers = {"apiKey": API_KEY_CVSS}
+#     try:
+#         response = requests.get(url,headers=headers,timeout=10)
+#         response.raise_for_status()
+#         data = response.json()
+#         cvss_data = data['vulnerabilities'][0]['cve']['metrics']['cvssMetricV31'][0]['cvssData']
+#         return {
+#             'Severity': cvss_data.get('baseSeverity', 'N/A'),
+#             'Score': cvss_data.get('baseScore', 'N/A'),
+#             'Vector': cvss_data.get('vectorString', 'N/A')
+#         }
+#     except:
+#         return {
+#             'Severity': 'Error',
+#             'Score': 'Error',
+#             'Vector': 'Error'
+#         }
+def get_cve_details(cve_id):
+    try:
+        cve = nvdlib.searchCVE(cveId=cve_id)
+        if not cve:
+            raise ValueError("CVE not found")
+
+        # `cve` is a generator, so get the first result
+        cve = next(cve)
+
+        # Check for CVSS v3.1 metrics
+        if cve.cvssV3_1:
+            cvss_data = cve.cvssV3_1
+            return {
+                'Severity': cvss_data.baseSeverity,
+                'Score': cvss_data.baseScore,
+                'Vector': cvss_data.vectorString
+            }
+        else:
+            return {
+                'Severity': 'N/A',
+                'Score': 'N/A',
+                'Vector': 'N/A'
+            }
+
+    except Exception as e:
+        return {
+            'Severity': 'Error',
+            'Score': 'Error',
+            'Vector': 'Error'
+        }
+# === Merge CVE Data ===
+merged_data = []
+for cve_id in cve_ids:
+    epss = get_epss_details(cve_id)
+    cvss = get_cve_details(cve_id)
+    merged_row = {**epss, **cvss}
+    merged_data.append(merged_row)
+    # time.sleep(1.2)  # Optional: uncomment to respect rate limits
+
+# === Build Final DataFrame ===
+result_df = pd.DataFrame(merged_data)
+result_df['cve'] = result_df['cve'].str.lower()
+result_df['In_KEV'] = result_df['cve'].isin(kev_df['cveID']).map({True: 'Yes', False: 'No'})
+
+# === Export to Excel ===
+output_file = "cve_combined_details.xlsx"
+
+result_df.to_excel(output_file, index=False)
+print(f"✅ Excel saved as '{output_file}'")
+
+# === Cleanup ===
+if os.path.exists(kev_file):
+    os.remove(kev_file)
+    print("✅ Cleanup complete: KEV file removed.")
