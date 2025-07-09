@@ -1,0 +1,113 @@
+import re
+import json
+import sys
+import time
+
+
+
+def banner():
+    print("=" * 50)
+    print("     SAOS Version Scanner & Advisory Fetcher     ")
+    print("           by Innovation Center              ")
+    print("=" * 50)
+
+def get_ip():
+    ip = input("Enter the target machine IP address: ").strip()
+    print(f"Initiating scan for IP: {ip}\n")
+    return ip
+
+def read_os_version(file_path="Osversion.txt"):
+    print("Checking configuration and reading OS version file...")
+    try:
+        with open(file_path, "r") as f:
+            print(f.read())
+            return f.read()
+    except FileNotFoundError:
+        print(f"Error: {file_path} not found.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error while reading {file_path}: {e}")
+        sys.exit(1)
+
+def extract_versions(content):
+    print("Analyzing system output to detect OS version...")
+    matches = re.findall(r"\b(?:SAOS|SOAS)[^\d]*(\d{1,2}\.\d{1,2}\.\d{1,2})\b", content, re.IGNORECASE)
+    return set(matches)
+def simulate_scan():
+    print("Running scan", end="", flush=True)
+    for _ in range(5):
+        print(".", end="", flush=True)
+        time.sleep(0.5)
+    print(" done!\n")
+def load_advisory_db(file_path="data.json"):
+    print("Loading advisory database...")
+    for _ in range(5):
+        print(".", end="", flush=True)
+        time.sleep(0.5)
+    print(" done!\n")
+    try:
+        with open(file_path, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"Error: {file_path} not found.")
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print("Error: Failed to parse advisory database (invalid JSON).")
+        sys.exit(1)
+
+def fetch_advisory(versions, advisory_data):
+    print("\nMatching OS versions with known advisories...\n")
+    found_any = False
+    for _ in range(5):
+        print(".", end="", flush=True)
+        time.sleep(0.5)
+    print(" done!\n")
+    try:
+        with open("report.txt", "w", encoding="utf-8") as report:
+            for version in versions:
+                matched = False
+                print(f"  Detected OS Version: {version}")
+                for entry in advisory_data:
+                    if entry["product_version"] == version:
+                        print(f" Advisory found for version {version}")
+                        output = (
+                            f"OS Version       : {version}\n"
+                            f"Product Name     : {entry['product_name']}\n"
+                            f"Advisory ID      : {entry['advisory_id']}\n"
+                            f"Recommended Fix  : {entry['remediation']}\n"
+                            f"Mitigation Steps : {entry['mitigation']}\n"
+                            + "-" * 40 + "\n"
+                        )
+                        report.write(output)
+                        print(output)
+                        matched = True
+                        found_any = True
+                        break
+                if not matched:
+                    print(f"No advisory found for version: {version}")
+            if not found_any:
+                report.write("No relevant advisories found for the detected OS versions.\n")
+                print("No advisories found.")
+    except Exception as e:
+        print(f"Error while writing report: {e}")
+        sys.exit(1)
+
+def main():
+    banner()
+    ip = get_ip()
+    simulate_scan()
+    content = read_os_version()
+    
+    versions = extract_versions(content)
+    
+    if not versions:
+        print("No SAOS/SOAS versions found in the provided file.")
+        sys.exit(0)
+
+    advisory_data = load_advisory_db()
+    fetch_advisory(versions, advisory_data)
+
+    print("\nScan completed successfully. Check 'report.txt' for details.")
+
+if __name__ == "__main__":
+    main()
